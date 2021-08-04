@@ -7,8 +7,10 @@ use reqwest::blocking::{Request, Response};
 use reqwest::header::{
     HeaderMap, HeaderName, HeaderValue, ACCEPT, CONTENT_LENGTH, CONTENT_TYPE, HOST,
 };
+use reqwest::{Method, StatusCode, Version};
 use termcolor::WriteColor;
 
+use crate::formatting::color_for_scope;
 use crate::{
     buffer::Buffer,
     cli::{Pretty, Theme},
@@ -233,33 +235,153 @@ impl Printer {
         }
     }
 
-    fn print_headers(&mut self, text: &str) -> io::Result<()> {
+    fn set_scope_color(&mut self, scope: &'static str) -> io::Result<()> {
+        self.buffer.set_color(&color_for_scope(
+            self.theme.into(),
+            &[scope.parse().unwrap()],
+        ))
+    }
+
+    fn print_colored_http_version(&mut self, version: Version) -> io::Result<()> {
+        let mut version: &str = &format!("{:?}", version);
+        version = version.strip_prefix("HTTP/").unwrap_or(version);
+        self.set_scope_color("keyword.other.http")?;
+        write!(self.buffer, "HTTP")?;
+        self.set_scope_color("punctuation.separator.http")?;
+        write!(self.buffer, "/")?;
+        self.set_scope_color("constant.numeric.http")?;
+        write!(self.buffer, "{}", version)?;
+        Ok(())
+    }
+
+    fn print_request_line(
+        &mut self,
+        method: &Method,
+        path: &str,
+        query_string: &str,
+        version: Version,
+    ) -> io::Result<()> {
         if self.color {
-            self.print_colorized_text(text, "http")
+            self.set_scope_color("keyword.control.http")?;
+            write!(self.buffer, "{}", method)?;
+
+            self.buffer.reset()?;
+            write!(self.buffer, " ")?;
+
+            self.set_scope_color("const.language.http")?;
+            write!(self.buffer, "{}{}", path, query_string)?;
+
+            self.buffer.reset()?;
+            write!(self.buffer, " ")?;
+
+            self.print_colored_http_version(version)?;
+
+            self.buffer.reset()?;
+            writeln!(self.buffer)?;
+            Ok(())
         } else {
-            self.buffer.print(text)
+            writeln!(
+                self.buffer,
+                "{} {}{} {:?}\n",
+                method, path, query_string, version
+            )
         }
     }
 
-    fn headers_to_string(&self, headers: &HeaderMap, sort: bool) -> String {
-        let mut headers: Vec<(&HeaderName, &HeaderValue)> = headers.iter().collect();
-        if sort {
-            headers.sort_by_key(|(name, _)| name.as_str());
+    fn print_status_line(&mut self, version: Version, status: StatusCode) -> io::Result<()> {
+        if self.color {
+            self.print_colored_http_version(version)?;
+
+            self.buffer.reset()?;
+            write!(self.buffer, " ")?;
+
+            self.set_scope_color("constant.numeric.http")?;
+            write!(self.buffer, "{}", u16::from(status))?;
+
+            self.buffer.reset()?;
+            write!(self.buffer, " ")?;
+
+            self.set_scope_color("keyword.reason.http")?;
+            write!(
+                self.buffer,
+                "{}",
+                status.canonical_reason().unwrap_or("UNKNOWN")
+            )?;
+
+            self.buffer.reset()?;
+            writeln!(self.buffer)?;
+            Ok(())
+        } else {
+            writeln!(self.buffer, "{:?} {}", version, status)
+        }
+    }
+
+    fn print_headers(&mut self, headers: &HeaderMap) -> io::Result<()> {
+        let mut headers: Vec<(String, String)> = headers
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.to_string(),
+                    match value.to_str() {
+                        Ok(value) => value.to_owned(),
+                        Err(_) => format!("{:?}", value),
+                    },
+                )
+            })
+            .collect();
+        if self.sort_headers {
+            headers.sort();
         }
 
-        let mut header_string = String::new();
-        for (key, value) in headers {
-            header_string.push_str(key.as_str());
-            header_string.push_str(": ");
-            match value.to_str() {
-                Ok(value) => header_string.push_str(value),
-                Err(_) => header_string.push_str(&format!("{:?}", value)),
+        if self.color {
+            let theme = self.theme.into();
+            let name_color = color_for_scope(
+                theme,
+                &[
+                    "source.http".parse().unwrap(),
+                    "http.requestheaders".parse().unwrap(),
+                    "support.variable.http".parse().unwrap(),
+                ],
+            );
+            let colon_color = color_for_scope(
+                theme,
+                &[
+                    "source.http".parse().unwrap(),
+                    "http.requestheaders".parse().unwrap(),
+                    "punctuation.separator.http".parse().unwrap(),
+                ],
+            );
+            let value_color = color_for_scope(
+                theme,
+                &[
+                    "source.http".parse().unwrap(),
+                    "http.requestheaders".parse().unwrap(),
+                    "string.other.http".parse().unwrap(),
+                ],
+            );
+            for (name, value) in headers {
+                self.buffer.set_color(&name_color)?;
+                write!(self.buffer, "{}", name)?;
+
+                self.buffer.set_color(&colon_color)?;
+                write!(self.buffer, ":")?;
+
+                self.buffer.reset()?;
+                write!(self.buffer, " ")?;
+
+                self.buffer.set_color(&value_color)?;
+                write!(self.buffer, "{}", value)?;
+
+                self.buffer.reset()?;
+                writeln!(self.buffer)?;
             }
-            header_string.push('\n');
+        } else {
+            for (name, value) in headers {
+                writeln!(self.buffer, "{}: {}", name, value)?;
+            }
         }
-        header_string.pop();
 
-        header_string
+        Ok(())
     }
 
     pub fn print_request_headers(&mut self, request: &Request) -> io::Result<()> {
@@ -298,10 +420,8 @@ impl Printer {
             });
         }
 
-        let request_line = format!("{} {}{} {:?}\n", method, url.path(), query_string, version);
-        let headers = self.headers_to_string(&headers, self.sort_headers);
-
-        self.print_headers(&(request_line + &headers))?;
+        self.print_request_line(method, url.path(), &query_string, version)?;
+        self.print_headers(&headers)?;
         self.buffer.print("\n\n")?;
         Ok(())
     }
@@ -311,10 +431,8 @@ impl Printer {
         let status = response.status();
         let headers = response.headers();
 
-        let status_line = format!("{:?} {}\n", version, status);
-        let headers = self.headers_to_string(headers, self.sort_headers);
-
-        self.print_headers(&(status_line + &headers))?;
+        self.print_status_line(version, status)?;
+        self.print_headers(headers)?;
         self.buffer.print("\n\n")?;
         Ok(())
     }

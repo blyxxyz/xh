@@ -31,6 +31,12 @@ lazy_static::lazy_static! {
     )));
 }
 
+impl From<Theme> for &'static syntect::highlighting::Theme {
+    fn from(theme: Theme) -> Self {
+        &TS.themes[theme.as_str()]
+    }
+}
+
 pub struct Highlighter<'a> {
     highlighter: HighlightLines<'static>,
     syntax_set: &'static SyntaxSet,
@@ -41,14 +47,15 @@ pub struct Highlighter<'a> {
 impl<'a> Highlighter<'a> {
     pub fn new(syntax: &'static str, theme: Theme, out: &'a mut Buffer) -> Self {
         let syntax_set: &SyntaxSet = match syntax {
-            "json" | "http" => &PS_BASIC,
+            "json" => &PS_BASIC,
             _ => &PS_LARGE,
         };
         let syntax = syntax_set
             .find_syntax_by_extension(syntax)
             .expect("syntax not found");
+        let theme = theme.into();
         Self {
-            highlighter: HighlightLines::new(syntax, &TS.themes[theme.as_str()]),
+            highlighter: HighlightLines::new(syntax, theme),
             syntax_set,
             out,
         }
@@ -66,6 +73,27 @@ impl<'a> Highlighter<'a> {
     pub fn highlight_bytes(&mut self, line: &[u8]) -> io::Result<()> {
         self.highlight(&String::from_utf8_lossy(line))
     }
+}
+
+pub fn color_for_scope(
+    theme: &'static syntect::highlighting::Theme,
+    scopes: &[syntect::parsing::Scope],
+) -> termcolor::ColorSpec {
+    let mut style = syntect::highlighting::Style::default();
+    style.foreground.a = 0;
+    style.foreground.r = 7;
+    if let Some(foreground) = theme.settings.foreground {
+        style.foreground = foreground;
+    }
+    if let Some((modifier, _)) = theme
+        .scopes
+        .iter()
+        .filter_map(|item| Some((item.style, item.scope.does_match(scopes)?)))
+        .max_by_key(|&(_, score)| score)
+    {
+        style = style.apply(modifier);
+    }
+    convert_style(style)
 }
 
 impl Drop for Highlighter<'_> {
