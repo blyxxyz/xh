@@ -1,10 +1,40 @@
 use std::env::var_os;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use reqwest::blocking::Request;
 use url::{Host, Url};
+
+pub static BIN_NAME: Lazy<RwLock<String>> =
+    Lazy::new(|| RwLock::new(String::from(env!("CARGO_PKG_NAME"))));
+
+/// Like eprintln!(), but ignore errors instead of panicking.
+#[macro_export]
+macro_rules! emsg {
+    () => {{
+        use ::std::io::Write as _;
+        let _ = std::io::stderr().write_all(b"\n");
+    }};
+    ($($arg:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = writeln!(::std::io::stderr(), "{}", format_args!($($arg)*));
+    }};
+}
+
+/// Print a warning to stderr with the proper prefix.
+#[macro_export]
+macro_rules! warn {
+    ($($arg:tt)*) => {{
+        $crate::emsg!(
+            "{}: warning: {}",
+            $crate::BIN_NAME.read().unwrap(),
+            format_args!($($arg)*)
+        );
+    }}
+}
 
 pub fn clone_request(request: &mut Request) -> Result<Request> {
     if let Some(b) = request.body_mut().as_mut() {

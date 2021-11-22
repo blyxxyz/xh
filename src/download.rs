@@ -13,8 +13,8 @@ use reqwest::{
     StatusCode,
 };
 
-use crate::regex;
 use crate::utils::{copy_largebuf, test_pretend_term};
+use crate::{emsg, regex};
 
 fn get_content_length(headers: &HeaderMap) -> Option<u64> {
     headers
@@ -216,7 +216,7 @@ pub fn download_file(
     let pb = if quiet {
         None
     } else if let Some(total_length) = total_length {
-        eprintln!(
+        emsg!(
             "Downloading {} to {:?}",
             HumanBytes(total_length - starting_length),
             dest_name
@@ -230,7 +230,7 @@ pub fn download_file(
             .progress_chars("#>-");
         Some(ProgressBar::new(total_length).with_style(style))
     } else {
-        eprintln!("Downloading to {:?}", dest_name);
+        emsg!("Downloading to {:?}", dest_name);
         let style = ProgressStyle::default_bar().template(if color {
             SPINNER_TEMPLATE
         } else {
@@ -250,14 +250,14 @@ pub fn download_file(
             pb.finish_and_clear();
             let time_taken = starting_time.elapsed();
             if time_taken != Duration::from_nanos(0) {
-                eprintln!(
+                emsg!(
                     "Done. {} in {} ({}/s)",
                     HumanBytes(downloaded_length),
                     humantime::format_duration(time_taken),
                     HumanBytes((downloaded_length as f64 / time_taken.as_secs_f64()) as u64)
                 );
             } else {
-                eprintln!("Done. {}", HumanBytes(downloaded_length));
+                emsg!("Done. {}", HumanBytes(downloaded_length));
             }
         }
         None => {

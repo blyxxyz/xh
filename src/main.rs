@@ -37,7 +37,7 @@ use crate::middleware::ClientWithMiddleware;
 use crate::printer::Printer;
 use crate::request_items::{Body, FORM_CONTENT_TYPE, JSON_ACCEPT, JSON_CONTENT_TYPE};
 use crate::session::Session;
-use crate::utils::{test_mode, test_pretend_term};
+use crate::utils::{test_mode, test_pretend_term, BIN_NAME};
 use crate::vendored::reqwest_cookie_store;
 
 fn get_user_agent() -> &'static str {
@@ -51,7 +51,6 @@ fn get_user_agent() -> &'static str {
 
 fn main() {
     let args = Cli::parse();
-    let bin_name = args.bin_name.clone();
     let url = args.url.clone();
     let native_tls = args.native_tls;
 
@@ -60,27 +59,27 @@ fn main() {
             process::exit(exit_code);
         }
         Err(err) => {
-            eprintln!("{}: error: {:?}", bin_name, err);
+            emsg!("{}: error: {:?}", BIN_NAME.read().unwrap(), err);
             let msg = err.root_cause().to_string();
             if !native_tls && msg == "invalid dnsname" {
-                eprintln!();
+                emsg!();
                 if utils::url_requires_native_tls(&url) {
-                    eprintln!("rustls does not support HTTPS for IP addresses.");
+                    emsg!("rustls does not support HTTPS for IP addresses.");
                 } else {
                     // Maybe we went to https://<IP> after a redirect?
-                    eprintln!(
+                    emsg!(
                         "This may happen because rustls does not support HTTPS for IP addresses."
                     );
                 }
                 if cfg!(feature = "native-tls") {
-                    eprintln!("Try using the --native-tls flag.");
+                    emsg!("Try using the --native-tls flag.");
                 } else {
-                    eprintln!("Consider building with the `native-tls` feature enabled.");
+                    emsg!("Consider building with the `native-tls` feature enabled.");
                 }
             }
             if native_tls && msg == "invalid minimum TLS version for backend" {
-                eprintln!();
-                eprintln!("Try running without the --native-tls flag.");
+                emsg!();
+                emsg!("Try running without the --native-tls flag.");
             }
             process::exit(1);
         }
@@ -92,11 +91,6 @@ fn run(args: Cli) -> Result<i32> {
         to_curl::print_curl_translation(args)?;
         return Ok(0);
     }
-
-    let warn = {
-        let bin_name = &args.bin_name;
-        move |msg| eprintln!("{}: warning: {}", bin_name, msg)
-    };
 
     let (mut headers, headers_to_unset) = args.request_items.headers()?;
 
@@ -136,13 +130,13 @@ fn run(args: Cli) -> Result<i32> {
 
         #[cfg(feature = "native-tls")]
         if !args.native_tls && tls_version < tls::Version::TLS_1_2 {
-            warn("rustls does not support older TLS versions. native-tls will be enabled. Use --native-tls to silence this warning.");
+            warn!("rustls does not support older TLS versions. native-tls will be enabled. Use --native-tls to silence this warning.");
             client = client.use_native_tls();
         }
 
         #[cfg(not(feature = "native-tls"))]
         if tls_version < tls::Version::TLS_1_2 {
-            warn("rustls does not support older TLS versions. Consider building with the `native-tls` feature enabled.");
+            warn!("rustls does not support older TLS versions. Consider building with the `native-tls` feature enabled.");
         }
     }
 
@@ -151,7 +145,7 @@ fn run(args: Cli) -> Result<i32> {
         client = client.use_native_tls();
     } else if utils::url_requires_native_tls(&args.url) {
         // We should be loud about this to prevent confusion
-        warn("rustls does not support HTTPS for IP addresses. native-tls will be enabled. Use --native-tls to silence this warning.");
+        warn!("rustls does not support HTTPS for IP addresses. native-tls will be enabled. Use --native-tls to silence this warning.");
         client = client.use_native_tls();
     }
 
@@ -185,7 +179,7 @@ fn run(args: Cli) -> Result<i32> {
                 if args.native_tls {
                     // This is not a hard error in case it gets fixed upstream
                     // https://github.com/seanmonstar/reqwest/issues/1260
-                    warn("Custom CA bundles with native-tls are broken");
+                    warn!("Custom CA bundles with native-tls are broken");
                 }
 
                 let mut buffer = Vec::new();
@@ -212,7 +206,7 @@ fn run(args: Cli) -> Result<i32> {
             if args.native_tls {
                 // Unlike the --verify case this is advertised to not work, so it's
                 // not an outright bug, but it's still imaginable that it'll start working
-                warn("Client certificates are not supported for native-tls")
+                warn!("Client certificates are not supported for native-tls");
             }
 
             let mut buffer = Vec::new();
@@ -483,7 +477,7 @@ fn run(args: Cli) -> Result<i32> {
             }
         }
         if is_output_redirected && exit_code != 0 {
-            warn(&format!("HTTP {}", status));
+            warn!("HTTP {}", status);
         }
 
         if print.response_headers {

@@ -17,9 +17,10 @@ use structopt::clap::{self, arg_enum, AppSettings, Error, ErrorKind, Result};
 use structopt::StructOpt;
 
 use crate::buffer::Buffer;
-use crate::regex;
 use crate::request_items::RequestItems;
-use crate::utils::config_dir;
+use crate::utils::{config_dir, BIN_NAME};
+use crate::warn;
+use crate::{emsg, regex};
 
 // Some doc comments were copy-pasted from HTTPie
 
@@ -434,7 +435,7 @@ impl Cli {
                     Cli::clap().print_help().unwrap();
                     println!(
                         "\n\nRun `{} help` for more complete documentation.",
-                        env!("CARGO_PKG_NAME")
+                        BIN_NAME.read().unwrap()
                     );
                 }
                 safe_exit();
@@ -451,6 +452,13 @@ impl Cli {
         let mut app = Self::clap();
         let matches = app.get_matches_from_safe_borrow(iter)?;
         let mut cli = Self::from_clap(&matches);
+
+        cli.bin_name = app
+            .get_bin_name()
+            .and_then(|name| name.split('.').next())
+            .unwrap_or(env!("CARGO_PKG_NAME"))
+            .to_owned();
+        *BIN_NAME.write().unwrap() = cli.bin_name.clone();
 
         match cli.raw_method_or_url.as_str() {
             "help" => {
@@ -480,12 +488,6 @@ impl Cli {
         for request_item in rest_args {
             cli.request_items.items.push(request_item.parse()?);
         }
-
-        cli.bin_name = app
-            .get_bin_name()
-            .and_then(|name| name.split('.').next())
-            .unwrap_or("xh")
-            .to_owned();
 
         if matches!(cli.bin_name.as_str(), "https" | "xhs" | "xhttps") {
             cli.https = true;
@@ -603,11 +605,9 @@ fn default_cli_args() -> Option<Vec<String>> {
         Ok(file) => Some(file),
         Err(err) => {
             if err.kind() != std::io::ErrorKind::NotFound {
-                eprintln!(
-                    "\n{}: warning: Unable to read config file: {}\n",
-                    env!("CARGO_PKG_NAME"),
-                    err
-                );
+                emsg!();
+                warn!("Unable to read config file: {}", err);
+                emsg!();
             }
             None
         }
@@ -616,11 +616,9 @@ fn default_cli_args() -> Option<Vec<String>> {
     match serde_json::from_str::<Config>(&content) {
         Ok(config) => Some(config.default_options),
         Err(err) => {
-            eprintln!(
-                "\n{}: warning: Unable to parse config file: {}\n",
-                env!("CARGO_PKG_NAME"),
-                err
-            );
+            emsg!();
+            warn!("Unable to parse config file: {}", err);
+            emsg!();
             None
         }
     }
@@ -692,7 +690,9 @@ fn print_completions(mut app: clap::App, rest_args: Vec<String>) -> Error {
         // See https://github.com/clap-rs/clap/pull/2359, currently unreleased
         completions = completions.replace(r#" -n "__fish_use_subcommand""#, "");
     }
-    print!("{}", completions);
+    if let Err(err) = write!(std::io::stdout(), "{}", completions) {
+        return err.into();
+    }
     safe_exit();
 }
 

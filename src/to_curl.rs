@@ -1,19 +1,19 @@
-use std::io::{stderr, stdout, Write};
+use std::io::{stdout, Write};
 
 use anyhow::{anyhow, Result};
 use reqwest::{tls, Method};
 
 use crate::cli::{AuthType, Cli, HttpVersion, Verify};
 use crate::request_items::{Body, RequestItem, FORM_CONTENT_TYPE, JSON_ACCEPT, JSON_CONTENT_TYPE};
+use crate::{emsg, warn};
 
 pub fn print_curl_translation(args: Cli) -> Result<()> {
     let cmd = translate(args)?;
-    let mut stderr = stderr();
     for warning in &cmd.warnings {
-        writeln!(stderr, "Warning: {}", warning)?;
+        warn!("{}", warning);
     }
     if !cmd.warnings.is_empty() {
-        writeln!(stderr)?;
+        emsg!();
     }
     writeln!(stdout(), "{}", cmd)?;
     Ok(())
