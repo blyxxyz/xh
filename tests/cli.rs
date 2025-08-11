@@ -17,6 +17,7 @@ use assert_cmd::cmd::Command;
 use http_body_util::BodyExt;
 use indoc::indoc;
 use predicates::function::function;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use reqwest::header::HeaderValue;
 use serde_json::Value;
@@ -3816,4 +3817,86 @@ fn reason_phrase_is_preserved() {
 
 
         "#});
+}
+
+#[test]
+fn chunked_request_body() {
+    let server = server::http(|req| async move {
+        // We can't look at the raw body here
+        // But if the body isn't really chunked hyper should fail to parse it
+        assert_eq!(req.headers()["Transfer-Encoding"], "chunked");
+        // Transfer-Encoding overrides Content-Length
+        assert!(!req.headers().contains_key("Content-Length"));
+        assert_eq!(req.body_as_string().await, "test");
+
+        hyper::Response::default()
+    });
+
+    get_command()
+        .arg("--print=H")
+        .arg("post")
+        .arg(server.base_url())
+        .arg("--raw=test")
+        .arg("Transfer-Encoding:chunked")
+        .arg("Content-Length:4")
+        .assert()
+        .stdout(contains("Transfer-Encoding: chunked"))
+        .stdout(contains("Content-Length").not());
+}
+
+#[test]
+fn only_http11_can_be_chunked() {
+    let server = server::http(|req| async move {
+        assert!(!req.headers().contains_key("Transfer-Encoding"));
+        assert_eq!(req.body_as_string().await, "test");
+
+        hyper::Response::default()
+    });
+
+    get_command()
+        .arg("--print=H")
+        .arg("--http-version=1")
+        .arg("post")
+        .arg(server.base_url())
+        .arg("--raw=test")
+        .arg("Transfer-Encoding:chunked")
+        .assert()
+        .stdout(contains("Transfer-Encoding: chunked").not());
+}
+
+#[test]
+fn only_a_body_can_be_chunked() {
+    let server = server::http(|req| async move {
+        assert!(!req.headers().contains_key("Transfer-Encoding"));
+        assert_eq!(req.body_as_string().await, "");
+
+        hyper::Response::default()
+    });
+
+    get_command()
+        .arg("--print=H")
+        .arg("get")
+        .arg(server.base_url())
+        .arg("Transfer-Encoding:chunked")
+        .assert()
+        .stdout(contains("Transfer-Encoding: chunked").not());
+}
+
+#[test]
+fn transfer_encodings_are_fixed_to_be_chunked() {
+    let server = server::http(|req| async move {
+        assert_eq!(req.headers()["Transfer-Encoding"], "foobar, chunked");
+        assert_eq!(req.body_as_string().await, "test");
+
+        hyper::Response::default()
+    });
+
+    get_command()
+        .arg("--print=H")
+        .arg("post")
+        .arg(server.base_url())
+        .arg("--raw=test")
+        .arg("Transfer-Encoding:foobar")
+        .assert()
+        .stdout(contains("Transfer-Encoding: foobar, chunked"));
 }

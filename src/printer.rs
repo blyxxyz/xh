@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use encoding_rs::Encoding;
 use encoding_rs_io::DecodeReaderBytesBuilder;
+use hyper::header::TRANSFER_ENCODING;
 use mime::Mime;
 use reqwest::blocking::{Body, Request, Response};
 use reqwest::cookie::CookieStore;
@@ -339,10 +340,17 @@ impl Printer {
         }
 
         // See https://github.com/seanmonstar/reqwest/issues/1030
-        // reqwest and hyper add certain headers, but only in the process of
+        // reqwest and hyper add/modify certain headers, but only in the process of
         // sending the request, which we haven't done yet
-        if let Some(body) = request.body().and_then(Body::as_bytes) {
+        if version != reqwest::Version::HTTP_11 || request.body().is_none() {
+            headers.remove(TRANSFER_ENCODING);
+        }
+        if let Some(transfer_encoding) = headers.get_mut(TRANSFER_ENCODING) {
+            ensure_chunked_transfer_encoding(transfer_encoding);
+            headers.remove(CONTENT_LENGTH);
+        } else if let Some(body) = request.body().and_then(Body::as_bytes) {
             // Added at https://github.com/seanmonstar/reqwest/blob/c4ebb07343/src/blocking/request.rs#L144
+            // Maybe removed at https://github.com/hyperium/hyper/blob/974289fb3d/src/proto/h1/role.rs#L1405
             headers
                 .entry(CONTENT_LENGTH)
                 .or_insert_with(|| body.len().into());
@@ -716,6 +724,20 @@ fn get_charset(response: &Response) -> Option<&'static Encoding> {
     let mime: Mime = content_type.parse().ok()?;
     let encoding_name = mime.get_param("charset")?.as_str();
     Encoding::for_label(encoding_name.as_bytes())
+}
+
+/// Transfer-Encoding must end in "chunked".
+///
+/// See https://github.com/hyperium/hyper/blob/974289fb3d/src/headers.rs#L129
+fn ensure_chunked_transfer_encoding(raw_value: &mut HeaderValue) {
+    let Ok(value) = raw_value.to_str() else {
+        return;
+    };
+    let last = value.rsplit(',').next().expect("split yields >=1");
+    if !last.trim().eq_ignore_ascii_case("chunked") {
+        let new_value = value.to_owned() + ", chunked";
+        *raw_value = HeaderValue::from_bytes(new_value.as_bytes()).expect("added only valid bytes");
+    }
 }
 
 #[cfg(test)]

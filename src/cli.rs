@@ -458,6 +458,8 @@ Example: xh --generate=complete-bash > xh.bash",
     ///
     /// To construct a complex JSON object, the REQUEST_ITEM's key can be set to a JSON path instead of a field name.
     /// For more information on this syntax, refer to https://httpie.io/docs/cli/nested-json.
+    ///
+    /// Setting "Transfer-Encoding:chunked" applies chunked encoding to the request body.
     #[clap(value_name = "REQUEST_ITEM", verbatim_doc_comment)]
     raw_rest_args: Vec<String>,
 
