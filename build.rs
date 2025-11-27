@@ -28,11 +28,9 @@ fn feature_status(feature: &str) -> String {
 }
 
 fn features() -> String {
-    format!(
-        "{} {}",
-        &feature_status("native-tls"),
-        &feature_status("rustls")
-    )
+    ["native-tls", "rustls", "http3", "network-interface"]
+        .map(feature_status)
+        .join(" ")
 }
 
 fn main() {
