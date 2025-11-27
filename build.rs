@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::read_dir;
 use std::path::Path;
+use std::process::Command;
 
 use syntect::dumps::dump_to_file;
 use syntect::highlighting::ThemeSet;
@@ -33,6 +34,22 @@ fn features() -> String {
         .join(" ")
 }
 
+/// Cargo doesn't give us the Rust version directly but it does give us $RUSTC.
+///
+/// Partially adapted from serde. Should be robust.
+fn rustc_version() -> Option<String> {
+    let rustc = env::var_os("RUSTC")?;
+    let output = Command::new(rustc).arg("--version").output().ok()?;
+    let mut version = String::from_utf8(output.stdout).ok()?;
+    if !version.contains("nightly") {
+        if let Some(idx) = version.find(" (") {
+            // "rustc 1.91.1 (ed61e7d7e 2025-11-07)" → "rustc 1.91.1"
+            version.truncate(idx);
+        }
+    }
+    Some(version)
+}
+
 fn main() {
     for dir in [
         "assets/syntax",
@@ -57,5 +74,9 @@ fn main() {
     let ts = ThemeSet::load_from_folder("assets/themes").unwrap();
     dump_to_file(&ts, Path::new(&out_dir).join("themepack.themedump")).unwrap();
 
+    let version = rustc_version().unwrap_or_else(|| "unknown rustc".into());
+    let target = env::var("TARGET").unwrap_or_else(|_| "unknown target".into());
+
     println!("cargo:rustc-env=XH_FEATURES={}", features());
+    println!("cargo:rustc-env=XH_ENVIRONMENT={version} {target}");
 }

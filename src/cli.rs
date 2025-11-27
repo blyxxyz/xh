@@ -1277,7 +1277,13 @@ fn safe_exit() -> ! {
 }
 
 fn long_version() -> &'static str {
-    concat!(env!("CARGO_PKG_VERSION"), "\n", env!("XH_FEATURES"))
+    concat!(
+        env!("CARGO_PKG_VERSION"),
+        "\n",
+        env!("XH_FEATURES"),
+        "\n",
+        env!("XH_ENVIRONMENT"),
+    )
 }
 
 #[cfg(test)]

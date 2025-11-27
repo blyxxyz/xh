@@ -73,6 +73,7 @@ fn main() -> ExitCode {
     // HTTPie also prints the language version, library versions, and OS version.
     // But those are harder to access for us (and perhaps less likely to cause quirks).
     log::debug!("xh {} {}", env!("CARGO_PKG_VERSION"), env!("XH_FEATURES"));
+    log::debug!("{}", env!("XH_ENVIRONMENT"));
     log::debug!("{args:#?}");
 
     let native_tls = args.native_tls;
